@@ -9,18 +9,20 @@ import java.util.concurrent.CountDownLatch;
 public class ZkLock {
 
     private ZkClient zkClient = new ZkClient("192.168.1.23:2181");
-
+    //锁节点
     private String zkLock = "/zk_lock";
-
+    //并发工具
     private CountDownLatch countDownLatch = null;
     //获取锁,即创建节点
     public void lock(){
-        //如果不存在创建
+
         try {
+            //创建锁节点
             zkClient.createEphemeral(zkLock);
         }catch (Exception e){
             //精确点的异常应该是ZkNodeExistsException
-            //否接监听此节点
+            //所有创建失败的都会进入此逻辑
+            //创建监听
             IZkDataListener listener = new IZkDataListener() {
                 @Override
                 public void handleDataChange(String s, Object o) throws Exception { }
@@ -34,20 +36,19 @@ public class ZkLock {
 
                 }
             };
+            //订阅节点变化消息
             zkClient.subscribeDataChanges(zkLock,listener);
-            //如果存在
 
             countDownLatch = new CountDownLatch(1);
-            //证明被锁了，那么注册监听，阻塞等待
             try {
+                //在节点未被删除之前都处于阻塞状态
                 countDownLatch.await();
             } catch (InterruptedException interruptedException) {
                 interruptedException.printStackTrace();
             }
-
-            //以完成操作，不再需要监听
+            //当执行到此，说明监听已经使用，已经完成一轮操作，要清除监听
             zkClient.unsubscribeDataChanges(zkLock,listener);
-            //如果释放锁了立马再创建，抢着创建
+            //上一次没抢到的节点此时已经释放，可以重新抢着创建，递归
             lock();
         }
 
@@ -56,6 +57,7 @@ public class ZkLock {
     //释放锁
     public void unlock(){
         if(zkClient != null){
+            //当执行了close，临时节点救护自动被删除
             zkClient.close();
             System.out.println("释放锁");
         }
